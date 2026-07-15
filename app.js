@@ -348,10 +348,25 @@
   // Save the pasted text as you type (debounced-ish via change)
   textInput.addEventListener('change', savePrefs);
 
-  // ---------- service worker ----------
+  // ---------- service worker + auto-update ----------
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    // When a new worker takes control, reload once so fresh assets apply.
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return;   // don't reload on first install
+      reloading = true;
+      location.reload();
+    });
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
+        reg.update();
+        // Re-check for updates whenever the app comes back to the foreground.
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') reg.update();
+        });
+      } catch (_) {}
     });
   }
 
