@@ -72,7 +72,11 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
 
 /* ---------- READER VIEW ---------- */
 #reader-view{justify-content:flex-start;gap:14px;padding-top:max(40px,env(safe-area-inset-top))}
-.back{position:fixed;top:max(16px,env(safe-area-inset-top));right:18px;z-index:2}
+.back{position:fixed;top:max(16px,env(safe-area-inset-top));right:18px;z-index:3}
+/* Full-screen gesture surface: hold to read, swipe for speed/seek anywhere. */
+.gesture-layer{position:fixed;inset:0;z-index:1;touch-action:none;cursor:pointer}
+/* Keep the progress bar draggable above the gesture layer. */
+.progress-wrap{position:relative;z-index:2}
 .reader-stage{position:relative;padding:12px 0;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none}
 .reticle{display:none}
 

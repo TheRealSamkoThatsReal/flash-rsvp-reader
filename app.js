@@ -266,7 +266,8 @@
 
   // ---------- touch gestures ----------
   // Hold to play, release to pause. Swipe ↕ to change speed, ↔ to seek.
-  const stage = document.querySelector('.reader-stage');
+  // Handled on a full-screen layer so gestures work anywhere on the screen.
+  const stage = document.getElementById('gesture-layer');
   const THRESH = 14;            // px of movement before a hold becomes a swipe
   const PX_PER_WORD = 10;       // horizontal seek sensitivity
   const PX_PER_WPM = 1.6;       // vertical speed sensitivity
