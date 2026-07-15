@@ -26,6 +26,7 @@
       <div class="tabs" role="tablist">
         <button class="tab active" data-tab="text" role="tab">Paste text</button>
         <button class="tab" data-tab="link" role="tab">From link</button>
+        <button class="tab" data-tab="file" role="tab">Ebook</button>
       </div>
 
       <div class="tab-panel" data-panel="text">
@@ -36,6 +37,15 @@
         <input id="link-input" type="url" inputmode="url" placeholder="https://example.com/article" autocomplete="off">
         <p class="hint">Fetches the article's readable text via a reader proxy. Long articles may take a few seconds.</p>
         <div id="link-status" class="link-status hidden"></div>
+      </div>
+
+      <div class="tab-panel hidden" data-panel="file">
+        <label class="file-drop" id="file-drop">
+          <input id="file-input" type="file" accept=".epub,.txt,application/epub+zip,text/plain" hidden>
+          <span class="file-drop-label">Choose an EPUB or .txt file</span>
+        </label>
+        <p class="hint">Files are read on your device — nothing is uploaded. EPUBs are split into chapters.</p>
+        <div id="file-status" class="link-status hidden"></div>
       </div>
 
       <button id="start-btn" class="primary">Start reading →</button>
@@ -90,6 +100,13 @@
     </div>
 
     <div id="wpm-badge" class="wpm-badge">350 wpm</div>
+  </section>
+
+  <!-- ============ BOOK / CHAPTER LIST VIEW ============ -->
+  <section id="book-view" class="view hidden">
+    <button id="book-back" class="icon-btn back" title="Back">✕</button>
+    <h2 id="book-title" class="book-title"></h2>
+    <div id="chapter-list" class="chapter-list"></div>
   </section>
 
 </main>

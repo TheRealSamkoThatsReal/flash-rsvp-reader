@@ -11,6 +11,9 @@
   const $ = (id) => document.getElementById(id);
   const inputView   = $('input-view');
   const readerView  = $('reader-view');
+  const bookView    = $('book-view');
+  const chapterList = $('chapter-list');
+  const bookTitle   = $('book-title');
   const textInput   = $('text-input');
   const linkInput   = $('link-input');
   const linkStatus  = $('link-status');
@@ -35,6 +38,7 @@
     playing: false,
     timer: null,
     activeTab: 'text',
+    book: null,       // { title, chapters:[{title,text}], index } when reading an ebook
   };
 
   // Persisted preferences
@@ -133,9 +137,16 @@
   function finish() {
     pause();
     state.index = state.tokens.length;
+    updateProgress();
+    // In a book with more chapters, roll on to the next one automatically.
+    if (state.book && state.book.index < state.book.chapters.length - 1) {
+      wPre.textContent = ''; wOrp.textContent = '›'; wPost.textContent = '';
+      contextStrip.innerHTML = '<span class="cur">Next chapter…</span>';
+      setTimeout(() => { if (state.book) openChapter(state.book.index + 1, true); }, 900);
+      return;
+    }
     wPre.textContent = ''; wOrp.textContent = '✓'; wPost.textContent = '';
     contextStrip.innerHTML = '<span class="cur">Done.</span>';
-    updateProgress();
   }
 
   function seekTo(idx) {
@@ -183,21 +194,29 @@
   }
 
   // ---------- view switching ----------
-  function openReader(text) {
+  function openReader(text, opts = {}) {
+    if (!opts.fromBook) state.book = null;
     state.tokens = tokenize(text);
-    if (!state.tokens.length) { flashLinkStatus('Nothing to read — the text was empty.', 'err'); return; }
+    if (!state.tokens.length) {
+      if (!opts.fromBook) flashLinkStatus('Nothing to read — the text was empty.', 'err');
+      return false;
+    }
     state.index = 0;
     inputView.classList.add('hidden');
+    bookView.classList.add('hidden');
     readerView.classList.remove('hidden');
     showCurrent();
     // Desktop autostarts; on touch the reader waits for a hold-to-play press.
-    if (!isTouch) setTimeout(play, 500);
+    const autostart = opts.autostart !== undefined ? opts.autostart : !isTouch;
+    if (autostart) setTimeout(play, 500);
+    return true;
   }
 
   function closeReader() {
     pause();
     readerView.classList.add('hidden');
-    inputView.classList.remove('hidden');
+    if (state.book) bookView.classList.remove('hidden');   // back to chapter list
+    else inputView.classList.remove('hidden');
   }
 
   // ---------- link fetching (reader proxy) ----------
@@ -229,6 +248,157 @@
     return text;
   }
 
+  // ---------- ebook (EPUB / txt) ----------
+  const td = new TextDecoder();
+
+  function flashFileStatus(msg, kind) {
+    const el = $('file-status');
+    el.textContent = msg;
+    el.className = 'link-status ' + (kind || '');
+    el.classList.remove('hidden');
+  }
+
+  // Minimal ZIP reader built on the browser's DecompressionStream (no deps).
+  async function readZip(buf) {
+    const dv = new DataView(buf);
+    const len = buf.byteLength;
+    let eocd = -1;
+    const back = Math.min(len, 22 + 65535);
+    for (let i = len - 22; i >= len - back; i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('not a valid EPUB (no ZIP directory)');
+    const count = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    const entries = new Map();
+    for (let n = 0; n < count; n++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true);
+      const compSize = dv.getUint32(p + 20, true);
+      const nameLen = dv.getUint16(p + 28, true);
+      const extraLen = dv.getUint16(p + 30, true);
+      const commentLen = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      const name = td.decode(new Uint8Array(buf, p + 46, nameLen));
+      entries.set(name, { method, compSize, local });
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    async function read(name) {
+      const e = entries.get(name);
+      if (!e) return null;
+      const lnameLen = dv.getUint16(e.local + 26, true);
+      const lextraLen = dv.getUint16(e.local + 28, true);
+      const start = e.local + 30 + lnameLen + lextraLen;
+      const comp = new Uint8Array(buf, start, e.compSize);
+      if (e.method === 0) return comp;                     // stored
+      const ds = new DecompressionStream('deflate-raw');   // deflate
+      const ab = await new Response(new Blob([comp]).stream().pipeThrough(ds)).arrayBuffer();
+      return new Uint8Array(ab);
+    }
+    return { read };
+  }
+
+  function resolvePath(baseDir, rel) {
+    const stack = baseDir.split('/').filter(Boolean);
+    for (const part of rel.split('/')) {
+      if (part === '..') stack.pop();
+      else if (part && part !== '.') stack.push(part);
+    }
+    return stack.join('/');
+  }
+
+  function htmlToText(bytes) {
+    const doc = new DOMParser().parseFromString(td.decode(bytes), 'text/html');
+    doc.querySelectorAll('script,style').forEach((n) => n.remove());
+    const h = doc.querySelector('h1,h2,h3,title');
+    const title = h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
+    // Guarantee whitespace between block elements before flattening.
+    doc.querySelectorAll('p,div,br,li,tr,section,article,blockquote,h1,h2,h3,h4,h5,h6')
+      .forEach((el) => el.appendChild(doc.createTextNode(' ')));
+    const body = doc.body || doc.documentElement;
+    const text = (body ? body.textContent : '').replace(/\s+/g, ' ').trim();
+    return { title, text };
+  }
+
+  async function parseEpub(buf) {
+    const zip = await readZip(buf);
+    const containerBytes = await zip.read('META-INF/container.xml');
+    if (!containerBytes) throw new Error('missing container.xml');
+    const cdoc = new DOMParser().parseFromString(td.decode(containerBytes), 'application/xml');
+    const rootfile = cdoc.getElementsByTagNameNS('*', 'rootfile')[0];
+    const opfPath = rootfile && rootfile.getAttribute('full-path');
+    if (!opfPath) throw new Error('missing package path');
+    const opf = new DOMParser().parseFromString(td.decode(await zip.read(opfPath)), 'application/xml');
+    const baseDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+
+    const manifest = {};
+    for (const it of opf.getElementsByTagNameNS('*', 'item')) {
+      manifest[it.getAttribute('id')] = it.getAttribute('href');
+    }
+    const titleEl = opf.getElementsByTagNameNS('*', 'title')[0];
+    const bookTitleText = (titleEl && titleEl.textContent.trim()) || 'Untitled';
+
+    const chapters = [];
+    for (const ir of opf.getElementsByTagNameNS('*', 'itemref')) {
+      const href = manifest[ir.getAttribute('idref')];
+      if (!href) continue;
+      const path = resolvePath(baseDir, href.split('#')[0]);
+      const bytes = await zip.read(path);
+      if (!bytes) continue;
+      const { title, text } = htmlToText(bytes);
+      if (text.length < 1) continue;
+      chapters.push({ title: title || ('Section ' + (chapters.length + 1)), text });
+    }
+    if (!chapters.length) throw new Error('no readable chapters found');
+    return { title: bookTitleText, chapters, index: 0 };
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    const name = (file.name || '').toLowerCase();
+    try {
+      if (name.endsWith('.txt') || file.type === 'text/plain') {
+        const text = await file.text();
+        if (!text.trim()) throw new Error('file is empty');
+        openReader(text);
+        return;
+      }
+      flashFileStatus('Parsing “' + (file.name || 'ebook') + '” …', 'busy');
+      const book = await parseEpub(await file.arrayBuffer());
+      $('file-status').classList.add('hidden');
+      openBook(book);
+    } catch (err) {
+      flashFileStatus('Could not read file: ' + err.message, 'err');
+    }
+  }
+
+  function openBook(book) {
+    state.book = book;
+    bookTitle.textContent = book.title;
+    chapterList.innerHTML = '';
+    book.chapters.forEach((ch, i) => {
+      const words = ch.text.split(/\s+/).filter(Boolean).length;
+      const btn = document.createElement('button');
+      btn.className = 'chapter-item';
+      btn.innerHTML = '<span class="cnum"></span><span class="ctitle"></span><span class="cwords"></span>';
+      btn.querySelector('.cnum').textContent = i + 1;
+      btn.querySelector('.ctitle').textContent = ch.title;
+      btn.querySelector('.cwords').textContent = words.toLocaleString() + ' w';
+      btn.addEventListener('click', () => openChapter(i));
+      chapterList.appendChild(btn);
+    });
+    inputView.classList.add('hidden');
+    readerView.classList.add('hidden');
+    bookView.classList.remove('hidden');
+  }
+
+  function openChapter(i, autostart) {
+    const b = state.book;
+    if (!b || !b.chapters[i]) return;
+    b.index = i;
+    openReader(b.chapters[i].text, { fromBook: true, autostart });
+  }
+
   // ---------- events ----------
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -236,7 +406,27 @@
       document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
       document.querySelectorAll('.tab-panel').forEach((p) =>
         p.classList.toggle('hidden', p.dataset.panel !== state.activeTab));
+      // The Ebook tab acts on file selection, so hide the Start button there.
+      startBtn.classList.toggle('hidden', state.activeTab === 'file');
     });
+  });
+
+  // Ebook file input + drag-and-drop
+  $('file-input').addEventListener('change', (e) => handleFile(e.target.files[0]));
+  const fileDrop = $('file-drop');
+  ['dragover', 'dragenter'].forEach((ev) =>
+    fileDrop.addEventListener(ev, (e) => { e.preventDefault(); fileDrop.classList.add('drag'); }));
+  ['dragleave', 'dragend'].forEach((ev) =>
+    fileDrop.addEventListener(ev, () => fileDrop.classList.remove('drag')));
+  fileDrop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileDrop.classList.remove('drag');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+
+  $('book-back').addEventListener('click', () => {
+    bookView.classList.add('hidden');
+    inputView.classList.remove('hidden');
   });
 
   startBtn.addEventListener('click', async () => {
