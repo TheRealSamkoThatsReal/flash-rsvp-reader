@@ -325,7 +325,7 @@
 
   const wpmBadge = $('wpm-badge');
   function setWpm(v) {
-    v = Math.max(100, Math.min(1000, Math.round(v)));
+    v = Math.max(100, Math.round(v));   // no upper limit
     state.wpm = v;
     wpmRange.value = v;
     wpmOut.textContent = v + ' wpm';
