@@ -1,5 +1,6 @@
-/* Flash service worker — offline-first cache of the app shell. */
-const CACHE = 'flash-v2';
+/* Flash service worker — network-first for the app shell so updates show up
+ * as soon as you're online, with a cached copy as an offline fallback. */
+const CACHE = 'flash-v3';
 const SHELL = [
   '.',
   'index.html',
@@ -27,17 +28,17 @@ self.addEventListener('fetch', (e) => {
 
   // Never cache the article reader proxy — always go to network.
   if (url.hostname === 'r.jina.ai') return;
+  if (url.origin !== location.origin) return;
 
-  // App shell: cache-first, fall back to network and update cache.
-  if (url.origin === location.origin) {
-    e.respondWith(
-      caches.match(req).then((hit) =>
-        hit || fetch(req).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-          return res;
-        }).catch(() => caches.match('index.html'))
-      )
-    );
-  }
+  // App shell: network-first. Fetch fresh, cache it, and fall back to the
+  // cached copy (or index.html) only when offline.
+  e.respondWith(
+    fetch(req)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('index.html')))
+  );
 });
