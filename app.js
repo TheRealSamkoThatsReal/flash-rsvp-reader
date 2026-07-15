@@ -45,6 +45,7 @@
   } catch (_) {}
   wpmRange.value = state.wpm;
   wpmOut.textContent = state.wpm + ' wpm';
+  $('wpm-badge').textContent = state.wpm + ' wpm';
 
   const savePrefs = () => {
     try {
@@ -322,11 +323,13 @@
     if (wasPlaying) { /* stay paused while scrubbing */ }
   });
 
+  const wpmBadge = $('wpm-badge');
   function setWpm(v) {
     v = Math.max(100, Math.min(1000, Math.round(v)));
     state.wpm = v;
     wpmRange.value = v;
     wpmOut.textContent = v + ' wpm';
+    if (wpmBadge) wpmBadge.textContent = v + ' wpm';
     updateProgress();
     savePrefs();
   }

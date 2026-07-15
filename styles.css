@@ -80,6 +80,10 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
 .back{position:fixed;top:max(16px,env(safe-area-inset-top));right:18px;z-index:3}
 /* Full-screen gesture surface: hold to read, swipe for speed/seek anywhere. */
 .gesture-layer{position:fixed;inset:0;z-index:1;touch-action:none;cursor:pointer}
+/* Small WPM readout pinned to the bottom. */
+.wpm-badge{position:fixed;left:0;right:0;bottom:max(14px,env(safe-area-inset-bottom));
+  text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px;
+  letter-spacing:.08em;z-index:2;pointer-events:none}
 /* Keep the progress bar draggable above the gesture layer. */
 .progress-wrap{position:relative;z-index:2}
 .reader-stage{position:relative;padding:12px 0;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none}
