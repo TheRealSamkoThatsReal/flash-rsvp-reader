@@ -66,6 +66,10 @@
       let delay = 1;
       const len = word.length;
       if (len > 6)  delay += Math.min((len - 6) * 0.06, 0.6);   // long words
+      if (/\d/.test(word)) {                                    // numbers linger longer
+        const digits = (word.match(/\d/g) || []).length;
+        delay += 0.9 + Math.min(digits * 0.2, 1.6);
+      }
       if (/[,;:]$/.test(word))       delay += 0.4;              // mid-clause pause
       if (/[.!?…"”)]$/.test(word))   delay += 0.9;              // end of sentence
       if (/[.!?…]["”)]?$/.test(word))delay += 0.2;
