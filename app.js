@@ -49,7 +49,7 @@
   } catch (_) {}
   wpmRange.value = state.wpm;
   wpmOut.textContent = state.wpm + ' wpm';
-  $('wpm-badge').textContent = state.wpm + ' wpm';
+  $('wpm-val').textContent = state.wpm + ' wpm';
 
   const savePrefs = () => {
     try {
@@ -180,6 +180,19 @@
     seek.value = total ? (cur / total) * 100 : 0;
     const remaining = total - cur;
     timeLabel.textContent = fmtTime((remaining * baseDelayMs()) / 1000) + ' left';
+    updateLoc();
+  }
+
+  // Kindle-style location readout (~128 chars per location), book-wide.
+  function updateLoc() {
+    const el = $('loc-val');
+    if (!state.book || !state.book.charOffsets) { el.classList.add('hidden'); return; }
+    const inChapter = state.charStarts ? (state.charStarts[Math.min(state.index, state.charStarts.length - 1)] || 0) : 0;
+    const offset = (state.book.charOffsets[state.book.index] || 0) + inChapter;
+    const loc = Math.floor(offset / 128) + 1;
+    const total = Math.max(loc, Math.floor((state.book.totalChars || 0) / 128));
+    el.textContent = 'loc ' + loc.toLocaleString() + ' / ' + total.toLocaleString();
+    el.classList.remove('hidden');
   }
 
   function updateContext() {
@@ -205,6 +218,9 @@
       if (!opts.fromBook) flashLinkStatus('Nothing to read — the text was empty.', 'err');
       return false;
     }
+    // Prefix character offset of each token, for the ebook location readout.
+    let acc = 0;
+    state.charStarts = state.tokens.map((t) => { const s = acc; acc += t.word.length + 1; return s; });
     state.index = 0;
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
@@ -409,6 +425,10 @@
   }
 
   function openBook(book) {
+    // Book-wide character offsets for the location readout.
+    let acc = 0;
+    book.charOffsets = book.chapters.map((ch) => { const s = acc; acc += ch.text.length + 1; return s; });
+    book.totalChars = acc;
     state.book = book;
     bookTitle.textContent = book.title;
     chapterList.innerHTML = '';
@@ -631,7 +651,7 @@
     if (wasPlaying) { /* stay paused while scrubbing */ }
   });
 
-  const wpmBadge = $('wpm-badge');
+  const wpmBadge = $('wpm-val');
   function setWpm(v) {
     v = Math.max(100, Math.round(v));   // no upper limit
     state.wpm = v;
