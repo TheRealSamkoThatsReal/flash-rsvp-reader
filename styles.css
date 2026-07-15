@@ -73,7 +73,7 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
 /* ---------- READER VIEW ---------- */
 #reader-view{justify-content:center;gap:22px}
 .back{position:fixed;top:max(16px,env(safe-area-inset-top));right:18px;z-index:2}
-.reader-stage{position:relative;padding:30px 0;cursor:pointer;user-select:none;-webkit-user-select:none}
+.reader-stage{position:relative;padding:30px 0;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none}
 .reticle{display:none}
 
 .word-display,.context-strip{user-select:none;-webkit-user-select:none}
@@ -90,6 +90,9 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
   padding:0 8px;max-height:60px;overflow:hidden;
 }
 .context-strip .cur{color:var(--text)}
+
+.gesture-hint{display:none;text-align:center;color:var(--muted);font-size:12px;letter-spacing:.02em;transition:opacity .4s}
+@media (hover:none) and (pointer:coarse){ .gesture-hint{display:block} }
 
 .progress-wrap{display:flex;flex-direction:column;gap:6px}
 input[type=range]{

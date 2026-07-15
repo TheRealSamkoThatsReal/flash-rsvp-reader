@@ -4,6 +4,9 @@
 (() => {
   'use strict';
 
+  const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches
+    || ('ontouchstart' in window);
+
   // ---------- element refs ----------
   const $ = (id) => document.getElementById(id);
   const inputView   = $('input-view');
@@ -186,8 +189,8 @@
     inputView.classList.add('hidden');
     readerView.classList.remove('hidden');
     showCurrent();
-    // brief pause before autostart so the reader can find the reticle
-    setTimeout(play, 500);
+    // Desktop autostarts; on touch the reader waits for a hold-to-play press.
+    if (!isTouch) setTimeout(play, 500);
   }
 
   function closeReader() {
@@ -261,27 +264,52 @@
   $('back-btn').addEventListener('click', closeReader);
   playBtn.addEventListener('click', togglePlay);
 
-  // Tap the word area to play/pause; swipe horizontally to skip (touch-friendly).
+  // ---------- touch gestures ----------
+  // Hold to play, release to pause. Swipe ↕ to change speed, ↔ to seek.
   const stage = document.querySelector('.reader-stage');
-  let touchX = null, touchY = null, swiped = false;
+  const THRESH = 14;            // px of movement before a hold becomes a swipe
+  const PX_PER_WORD = 10;       // horizontal seek sensitivity
+  const PX_PER_WPM = 1.6;       // vertical speed sensitivity
+  let g = null;
+
+  const gestureHint = $('gesture-hint');
   stage.addEventListener('touchstart', (e) => {
-    touchX = e.touches[0].clientX; touchY = e.touches[0].clientY; swiped = false;
+    if (gestureHint) gestureHint.style.opacity = '0';
+    g = {
+      x0: e.touches[0].clientX,
+      y0: e.touches[0].clientY,
+      mode: 'hold',            // 'hold' | 'seek' | 'speed'
+      startIndex: state.index,
+      startWpm: state.wpm,
+    };
+    play();                    // hold-to-play begins immediately
   }, { passive: true });
+
   stage.addEventListener('touchmove', (e) => {
-    if (touchX === null) return;
-    const dx = e.touches[0].clientX - touchX;
-    const dy = e.touches[0].clientY - touchY;
-    if (!swiped && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) {
-      swiped = true;
-      nudge(dx > 0 ? 8 : -8);
+    if (!g) return;
+    const dx = e.touches[0].clientX - g.x0;
+    const dy = e.touches[0].clientY - g.y0;
+
+    if (g.mode === 'hold' && (Math.abs(dx) > THRESH || Math.abs(dy) > THRESH)) {
+      // A swipe: stop the hold-play blip and reset to where the finger landed.
+      pause();
+      seekTo(g.startIndex);
+      g.mode = Math.abs(dx) > Math.abs(dy) ? 'seek' : 'speed';
+    }
+
+    if (g.mode === 'seek') {
+      seekTo(g.startIndex + Math.round(dx / PX_PER_WORD));
+    } else if (g.mode === 'speed') {
+      setWpm(g.startWpm - dy / PX_PER_WPM);   // up = faster
     }
   }, { passive: true });
-  stage.addEventListener('touchend', () => {
-    if (!swiped) togglePlay();   // a tap (no swipe) toggles playback
-    touchX = touchY = null;
-  });
-  // Mouse users: click the word to pause/resume too.
-  stage.addEventListener('click', () => { if (!('ontouchstart' in window)) togglePlay(); });
+
+  const endGesture = () => { if (g) { pause(); g = null; } };  // release to pause
+  stage.addEventListener('touchend', endGesture);
+  stage.addEventListener('touchcancel', endGesture);
+
+  // Mouse users (no touch): click the word to play/pause.
+  stage.addEventListener('click', () => { if (!isTouch) togglePlay(); });
   $('rewind-btn').addEventListener('click', () => nudge(-10));
   $('ffwd-btn').addEventListener('click', () => nudge(10));
 
@@ -293,12 +321,16 @@
     if (wasPlaying) { /* stay paused while scrubbing */ }
   });
 
-  wpmRange.addEventListener('input', () => {
-    state.wpm = +wpmRange.value;
-    wpmOut.textContent = state.wpm + ' wpm';
+  function setWpm(v) {
+    v = Math.max(100, Math.min(1000, Math.round(v)));
+    state.wpm = v;
+    wpmRange.value = v;
+    wpmOut.textContent = v + ' wpm';
     updateProgress();
     savePrefs();
-  });
+  }
+
+  wpmRange.addEventListener('input', () => setWpm(+wpmRange.value));
 
   // ---------- keyboard ----------
   document.addEventListener('keydown', (e) => {
