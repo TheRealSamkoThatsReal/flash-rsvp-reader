@@ -111,7 +111,7 @@
   function play() {
     if (state.index >= state.tokens.length - 1) state.index = 0;
     state.playing = true;
-    playBtn.textContent = '❚❚';
+    playBtn.textContent = '❙❙';
     playBtn.classList.add('playing');
     showCurrent();
     scheduleNext();
@@ -120,7 +120,7 @@
   function pause() {
     state.playing = false;
     clearTimeout(state.timer);
-    playBtn.textContent = '▶';
+    playBtn.textContent = '▶︎';
     playBtn.classList.remove('playing');
   }
 

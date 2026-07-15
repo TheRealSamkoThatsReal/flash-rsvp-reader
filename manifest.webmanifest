@@ -6,8 +6,8 @@
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0a0e14",
-  "theme_color": "#0a0e14",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "categories": ["productivity", "education", "books"],
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
