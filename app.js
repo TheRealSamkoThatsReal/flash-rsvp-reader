@@ -357,6 +357,34 @@
     return { title: bookTitleText, chapters, index: 0 };
   }
 
+  // Kindle "My Clippings.txt": highlights/notes grouped by book, separated by
+  // a line of "=". Turn it into a book with one chapter per source title.
+  function looksLikeClippings(t) {
+    return /^={5,}\s*$/m.test(t) && /(Your Highlight|Your Note|Your Bookmark|Location \d)/.test(t);
+  }
+
+  function parseClippings(text) {
+    const t = text.replace(/\r\n/g, '\n').replace(/\uFEFF/g, '');
+    const byBook = new Map();
+    for (const raw of t.split(/^=+\s*$/m)) {
+      const block = raw.trim();
+      const nl = block.indexOf('\n');
+      if (nl < 0) continue;
+      const title = block.slice(0, nl).trim();
+      const rest = block.slice(nl + 1);
+      const blank = rest.indexOf('\n\n');
+      const content = (blank >= 0 ? rest.slice(blank + 2) : '').replace(/\s+/g, ' ').trim();
+      if (!title || !content) continue;                 // skip bookmarks / empties
+      if (!byBook.has(title)) byBook.set(title, []);
+      byBook.get(title).push(content);
+    }
+    // Each highlight ends with a stop so there's a natural pause between them.
+    return [...byBook.entries()].map(([title, hs]) => ({
+      title,
+      text: hs.map((h) => (/[.!?…]$/.test(h) ? h : h + '.')).join('  '),
+    }));
+  }
+
   async function handleFile(file) {
     if (!file) return;
     const name = (file.name || '').toLowerCase();
@@ -364,6 +392,10 @@
       if (name.endsWith('.txt') || file.type === 'text/plain') {
         const text = await file.text();
         if (!text.trim()) throw new Error('file is empty');
+        if (looksLikeClippings(text)) {
+          const chapters = parseClippings(text);
+          if (chapters.length) { openBook({ title: 'Kindle Highlights', chapters, index: 0 }); return; }
+        }
         openReader(text);
         return;
       }
