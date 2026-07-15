@@ -24,8 +24,9 @@
 
     <div class="input-card">
       <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="text" role="tab">Paste text</button>
-        <button class="tab" data-tab="link" role="tab">From link</button>
+        <button class="tab active" data-tab="text" role="tab">Text</button>
+        <button class="tab" data-tab="link" role="tab">Link</button>
+        <button class="tab" data-tab="browse" role="tab">Browse</button>
         <button class="tab" data-tab="file" role="tab">Ebook</button>
       </div>
 
@@ -37,6 +38,16 @@
         <input id="link-input" type="url" inputmode="url" placeholder="https://example.com/article" autocomplete="off">
         <p class="hint">Fetches the article's readable text via a reader proxy. Long articles may take a few seconds.</p>
         <div id="link-status" class="link-status hidden"></div>
+      </div>
+
+      <div class="tab-panel hidden" data-panel="browse">
+        <input id="browse-search" type="search" placeholder="Search articles…" autocomplete="off">
+        <div class="browse-chips">
+          <button class="chip active" data-feed="front_page">Top</button>
+          <button class="chip" data-feed="new">New</button>
+        </div>
+        <div id="browse-status" class="link-status hidden"></div>
+        <div id="browse-list" class="chapter-list"></div>
       </div>
 
       <div class="tab-panel hidden" data-panel="file">

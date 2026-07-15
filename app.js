@@ -435,6 +435,72 @@
     openReader(b.chapters[i].text, { fromBook: true, autostart });
   }
 
+  // ---------- article browser (Hacker News / Algolia, CORS-enabled) ----------
+  const browseList = $('browse-list');
+  let browseLoaded = false;
+  let browseFeed = 'front_page';
+
+  function flashBrowseStatus(msg, kind) {
+    const el = $('browse-status');
+    if (!msg) { el.classList.add('hidden'); return; }
+    el.textContent = msg;
+    el.className = 'link-status ' + (kind || '');
+    el.classList.remove('hidden');
+  }
+
+  function domainOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return ''; }
+  }
+
+  async function fetchFeed() {
+    const q = $('browse-search').value.trim();
+    let url;
+    if (q) url = 'https://hn.algolia.com/api/v1/search?query=' + encodeURIComponent(q) + '&tags=story&hitsPerPage=30';
+    else if (browseFeed === 'new') url = 'https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=30';
+    else url = 'https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30';
+    flashBrowseStatus('Loading…', 'busy');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      renderArticleList((data.hits || []).filter((h) => h.title));
+      browseLoaded = true;
+    } catch (err) {
+      flashBrowseStatus('Could not load articles: ' + err.message, 'err');
+    }
+  }
+
+  function renderArticleList(hits) {
+    browseList.innerHTML = '';
+    if (!hits.length) { flashBrowseStatus('No articles found.', ''); return; }
+    flashBrowseStatus('');
+    for (const h of hits) {
+      const url = h.url || ('https://news.ycombinator.com/item?id=' + h.objectID);
+      const meta = [domainOf(url),
+        h.points != null ? h.points + ' pts' : '',
+        h.num_comments != null ? h.num_comments + ' comments' : ''].filter(Boolean).join('  ·  ');
+      const btn = document.createElement('button');
+      btn.className = 'art-item';
+      btn.innerHTML = '<span class="art-title"></span><span class="art-meta"></span>';
+      btn.querySelector('.art-title').textContent = h.title;
+      btn.querySelector('.art-meta').textContent = meta;
+      btn.addEventListener('click', () => openArticle(url, h.title));
+      browseList.appendChild(btn);
+    }
+  }
+
+  async function openArticle(url, title) {
+    flashBrowseStatus('Fetching “' + (title || 'article') + '” …', 'busy');
+    try {
+      const text = await fetchArticle(url);
+      if (!text || text.length < 40) throw new Error('could not extract readable text');
+      flashBrowseStatus('');
+      openReader(text);
+    } catch (err) {
+      flashBrowseStatus('Could not open that article: ' + err.message + ' — try another.', 'err');
+    }
+  }
+
   // ---------- events ----------
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -442,9 +508,25 @@
       document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
       document.querySelectorAll('.tab-panel').forEach((p) =>
         p.classList.toggle('hidden', p.dataset.panel !== state.activeTab));
-      // The Ebook tab acts on file selection, so hide the Start button there.
-      startBtn.classList.toggle('hidden', state.activeTab === 'file');
+      // Ebook and Browse tabs act on their own controls, so hide the Start button.
+      startBtn.classList.toggle('hidden', state.activeTab === 'file' || state.activeTab === 'browse');
+      if (state.activeTab === 'browse' && !browseLoaded) fetchFeed();
     });
+  });
+
+  // Article browser controls
+  document.querySelectorAll('.browse-chips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.browse-chips .chip').forEach((c) => c.classList.toggle('active', c === chip));
+      browseFeed = chip.dataset.feed;
+      $('browse-search').value = '';
+      fetchFeed();
+    });
+  });
+  let browseTimer = null;
+  $('browse-search').addEventListener('input', () => {
+    clearTimeout(browseTimer);
+    browseTimer = setTimeout(fetchFeed, 350);   // debounce typing
   });
 
   // Ebook file input + drag-and-drop
