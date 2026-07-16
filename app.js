@@ -166,7 +166,7 @@
     playBtn.textContent = '▶︎';
     playBtn.classList.remove('playing');
     saveProgress(false);
-    if (state.peek && !readerView.classList.contains('hidden')) showPeek();
+    updateContext();               // reveal the sentence peek now that we're paused
   }
 
   function togglePlay() { state.playing ? pause() : play(); }
@@ -176,6 +176,7 @@
     state.index = state.tokens.length;
     updateProgress();
     saveProgress(true);
+    contextStrip.classList.remove('peek');
     // In a book with more chapters, roll on to the next one automatically.
     if (state.book && state.book.index < state.book.chapters.length - 1) {
       wPre.textContent = ''; wOrp.textContent = '›'; wPost.textContent = '';
@@ -257,16 +258,15 @@
     el.classList.remove('hidden');
   }
 
+  // Keep the strip blank while reading (no distraction); show the sentence
+  // peek only when paused (if enabled).
   function updateContext() {
-    const i = state.index;
-    const from = Math.max(0, i - 6), to = Math.min(state.tokens.length, i + 7);
-    let html = '';
-    for (let j = from; j < to; j++) {
-      const w = state.tokens[j].word;
-      html += j === i ? `<span class="cur">${escapeHtml(w)}</span> ` : escapeHtml(w) + ' ';
+    if (state.playing || !state.peek) {
+      contextStrip.classList.remove('peek');
+      contextStrip.textContent = '';
+      return;
     }
-    contextStrip.classList.remove('peek');
-    contextStrip.innerHTML = html;
+    showPeek();
   }
 
   // On pause, expand the strip to the whole current sentence to re-anchor.
