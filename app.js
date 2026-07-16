@@ -40,6 +40,10 @@
     activeTab: 'text',
     book: null,       // { title, chapters:[{title,text}], index } when reading an ebook
     replayUntil: null, // when set, playback pauses at this token (sentence replay)
+    pauseStrength: 1,  // multiplier on punctuation pauses (0–2.5)
+    autoSlow: true,    // ease off for a few words after a long/complex word
+    peek: true,        // expand to the full sentence when paused
+    slow: 1,           // live auto-slow multiplier (decays back to 1)
   };
 
   // Persisted preferences
@@ -47,6 +51,9 @@
     const saved = JSON.parse(localStorage.getItem('flash-prefs') || '{}');
     if (saved.wpm) state.wpm = saved.wpm;
     if (saved.text) textInput.value = saved.text;
+    if (typeof saved.pauseStrength === 'number') state.pauseStrength = saved.pauseStrength;
+    if (typeof saved.autoSlow === 'boolean') state.autoSlow = saved.autoSlow;
+    if (typeof saved.peek === 'boolean') state.peek = saved.peek;
   } catch (_) {}
   wpmRange.value = state.wpm;
   wpmOut.textContent = state.wpm + ' wpm';
@@ -54,7 +61,10 @@
 
   const savePrefs = () => {
     try {
-      localStorage.setItem('flash-prefs', JSON.stringify({ wpm: state.wpm, text: textInput.value.slice(0, 200000) }));
+      localStorage.setItem('flash-prefs', JSON.stringify({
+        wpm: state.wpm, text: textInput.value.slice(0, 200000),
+        pauseStrength: state.pauseStrength, autoSlow: state.autoSlow, peek: state.peek,
+      }));
     } catch (_) {}
   };
 
@@ -64,18 +74,27 @@
   function tokenize(raw) {
     const words = raw.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
     return words.map((word) => {
-      let delay = 1;
       const len = word.length;
-      if (len > 6)  delay += Math.min((len - 6) * 0.06, 0.6);   // long words
-      if (/\d/.test(word)) {                                    // numbers linger longer
+      const lenExtra = len > 6 ? Math.min((len - 6) * 0.06, 0.6) : 0;   // long words
+      let numExtra = 0;
+      if (/\d/.test(word)) {                                            // numbers
         const digits = (word.match(/\d/g) || []).length;
-        delay += 0.9 + Math.min(digits * 0.2, 1.6);
+        numExtra = 0.9 + Math.min(digits * 0.2, 1.6);
       }
-      if (/[,;:]$/.test(word))       delay += 0.4;              // mid-clause pause
-      if (/[.!?…"”)]$/.test(word))   delay += 0.9;              // end of sentence
-      if (/[.!?…]["”)]?$/.test(word))delay += 0.2;
-      return { word, delay };
+      let punctExtra = 0;                                               // pause at punctuation
+      if (/[,;:]$/.test(word))        punctExtra += 0.4;                // mid-clause
+      if (/[.!?…"”)]$/.test(word))    punctExtra += 0.9;                // end of sentence
+      if (/[.!?…]["”)]?$/.test(word)) punctExtra += 0.2;
+      const letters = word.replace(/[^A-Za-z]/g, '').length;
+      return { word, lenExtra, numExtra, punctExtra, complex: letters >= 12 };
     });
+  }
+
+  // Effective per-word dwell multiplier, using live settings + auto-slow state.
+  function tokenDelay(tok) {
+    let d = 1 + tok.lenExtra + tok.numExtra + state.pauseStrength * tok.punctExtra;
+    if (state.autoSlow) d *= state.slow;
+    return d;
   }
 
   // ---------- ORP (optimal recognition point) ----------
@@ -112,7 +131,11 @@
   // state.index always points at the word currently on screen.
   function scheduleNext() {
     const tok = state.tokens[state.index];
-    const ms = baseDelayMs() * tok.delay;
+    const ms = baseDelayMs() * tokenDelay(tok);
+    // A complex word boosts the slowdown for the words that follow; otherwise
+    // the boost decays back toward normal speed over a few words.
+    if (state.autoSlow && tok.complex) state.slow = Math.max(state.slow, 1.6);
+    else { state.slow = 1 + (state.slow - 1) * 0.5; if (state.slow < 1.02) state.slow = 1; }
     state.timer = setTimeout(() => {
       if (!state.playing) return;
       // Sentence-replay: stop once the replayed sentence has been shown.
@@ -143,6 +166,7 @@
     playBtn.textContent = '▶︎';
     playBtn.classList.remove('playing');
     saveProgress(false);
+    if (state.peek && !readerView.classList.contains('hidden')) showPeek();
   }
 
   function togglePlay() { state.playing ? pause() : play(); }
@@ -241,6 +265,22 @@
       const w = state.tokens[j].word;
       html += j === i ? `<span class="cur">${escapeHtml(w)}</span> ` : escapeHtml(w) + ' ';
     }
+    contextStrip.classList.remove('peek');
+    contextStrip.innerHTML = html;
+  }
+
+  // On pause, expand the strip to the whole current sentence to re-anchor.
+  function showPeek() {
+    const n = state.tokens.length;
+    if (!n) return;
+    const i = Math.min(state.index, n - 1);
+    const s = sentenceStart(i), e = sentenceEnd(i);
+    let html = '';
+    for (let j = s; j <= e; j++) {
+      const w = state.tokens[j].word;
+      html += j === i ? `<span class="cur">${escapeHtml(w)}</span> ` : escapeHtml(w) + ' ';
+    }
+    contextStrip.classList.add('peek');
     contextStrip.innerHTML = html;
   }
 
@@ -260,6 +300,7 @@
     let acc = 0;
     state.charStarts = state.tokens.map((t) => { const s = acc; acc += t.word.length + 1; return s; });
     state.replayUntil = null;
+    state.slow = 1;
     state.index = Math.max(0, Math.min(opts.startIndex || 0, state.tokens.length - 1));
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
@@ -764,6 +805,26 @@
     inputView.classList.remove('hidden');
     renderLibrary();
   });
+
+  // Settings panel
+  const settingsView = $('settings-view');
+  $('settings-btn').addEventListener('click', () => {
+    inputView.classList.add('hidden'); settingsView.classList.remove('hidden');
+  });
+  $('settings-back').addEventListener('click', () => {
+    settingsView.classList.add('hidden'); inputView.classList.remove('hidden');
+  });
+  $('pause-strength').value = Math.round(state.pauseStrength * 100);
+  $('pause-out').textContent = Math.round(state.pauseStrength * 100) + '%';
+  $('auto-slow').checked = state.autoSlow;
+  $('peek-toggle').checked = state.peek;
+  $('pause-strength').addEventListener('input', (e) => {
+    state.pauseStrength = +e.target.value / 100;
+    $('pause-out').textContent = e.target.value + '%';
+    savePrefs();
+  });
+  $('auto-slow').addEventListener('change', (e) => { state.autoSlow = e.target.checked; savePrefs(); });
+  $('peek-toggle').addEventListener('change', (e) => { state.peek = e.target.checked; savePrefs(); });
 
   startBtn.addEventListener('click', async () => {
     if (state.activeTab === 'text') {
