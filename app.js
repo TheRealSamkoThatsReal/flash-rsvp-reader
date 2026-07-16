@@ -39,6 +39,7 @@
     timer: null,
     activeTab: 'text',
     book: null,       // { title, chapters:[{title,text}], index } when reading an ebook
+    replayUntil: null, // when set, playback pauses at this token (sentence replay)
   };
 
   // Persisted preferences
@@ -114,6 +115,12 @@
     const ms = baseDelayMs() * tok.delay;
     state.timer = setTimeout(() => {
       if (!state.playing) return;
+      // Sentence-replay: stop once the replayed sentence has been shown.
+      if (state.replayUntil != null && state.index >= state.replayUntil) {
+        state.replayUntil = null;
+        pause();
+        return;
+      }
       if (state.index + 1 >= state.tokens.length) { finish(); return; }
       state.index++;
       showCurrent();
@@ -158,6 +165,7 @@
 
   function seekTo(idx) {
     idx = Math.max(0, Math.min(idx, state.tokens.length - 1));
+    state.replayUntil = null;      // any manual seek cancels a pending replay
     state.index = idx;
     showCurrent();
   }
@@ -167,6 +175,33 @@
     pause();
     seekTo(state.index + delta);
     if (wasPlaying) play();
+  }
+
+  // ---------- sentence replay (regression) ----------
+  function endsSentence(tok) { return /[.!?…]["”)]?$/.test(tok.word); }
+
+  function sentenceStart(i) {
+    for (let j = Math.min(i, state.tokens.length - 1) - 1; j >= 0; j--) {
+      if (endsSentence(state.tokens[j])) return j + 1;
+    }
+    return 0;
+  }
+
+  function sentenceEnd(from) {
+    for (let j = from; j < state.tokens.length; j++) if (endsSentence(state.tokens[j])) return j;
+    return state.tokens.length - 1;
+  }
+
+  // Jump back to the start of the current sentence (or the previous one if we're
+  // already at the start) and replay just that sentence, then pause.
+  function regress() {
+    if (!state.tokens.length) return;
+    let start = sentenceStart(state.index);
+    if (state.index - start <= 1) start = sentenceStart(start - 1);
+    start = Math.max(0, start);
+    seekTo(start);
+    state.replayUntil = sentenceEnd(start);
+    play();
   }
 
   // ---------- progress + context ----------
@@ -224,6 +259,7 @@
     // Prefix character offset of each token, for the ebook location readout.
     let acc = 0;
     state.charStarts = state.tokens.map((t) => { const s = acc; acc += t.word.length + 1; return s; });
+    state.replayUntil = null;
     state.index = Math.max(0, Math.min(opts.startIndex || 0, state.tokens.length - 1));
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
@@ -763,6 +799,7 @@
   const PX_PER_WORD = 10;       // horizontal seek sensitivity
   const PX_PER_WPM = 1.6;       // vertical speed sensitivity
   let g = null;
+  let lastTap = 0;              // for double-tap (replay) detection
 
   const gestureHint = $('gesture-hint');
   stage.addEventListener('touchstart', (e) => {
@@ -770,6 +807,7 @@
     g = {
       x0: e.touches[0].clientX,
       y0: e.touches[0].clientY,
+      t0: Date.now(),
       mode: 'hold',            // 'hold' | 'seek' | 'speed'
       startIndex: state.index,
       startWpm: state.wpm,
@@ -796,12 +834,23 @@
     }
   }, { passive: true });
 
-  const endGesture = () => { if (g) { pause(); g = null; } };  // release to pause
-  stage.addEventListener('touchend', endGesture);
-  stage.addEventListener('touchcancel', endGesture);
+  function endGesture(cancelled) {
+    if (!g) return;
+    // A quick, still touch is a tap; two taps in quick succession = replay.
+    const tap = !cancelled && g.mode === 'hold' && (Date.now() - g.t0) < 250;
+    pause();
+    const now = Date.now();
+    const isDouble = tap && (now - lastTap) < 320;
+    g = null;
+    if (isDouble) { lastTap = 0; regress(); }
+    else if (tap) { lastTap = now; }
+  }
+  stage.addEventListener('touchend', () => endGesture(false));
+  stage.addEventListener('touchcancel', () => endGesture(true));
 
-  // Mouse users (no touch): click the word to play/pause.
+  // Mouse users (no touch): click = play/pause, double-click = replay sentence.
   stage.addEventListener('click', () => { if (!isTouch) togglePlay(); });
+  stage.addEventListener('dblclick', () => { if (!isTouch) regress(); });
   $('rewind-btn').addEventListener('click', () => nudge(-10));
   $('ffwd-btn').addEventListener('click', () => nudge(10));
 
@@ -835,6 +884,7 @@
       case 'ArrowRight': e.preventDefault(); nudge(5); break;
       case 'ArrowUp':    e.preventDefault(); wpmRange.value = state.wpm + 25; wpmRange.dispatchEvent(new Event('input')); break;
       case 'ArrowDown':  e.preventDefault(); wpmRange.value = state.wpm - 25; wpmRange.dispatchEvent(new Event('input')); break;
+      case 'r': case 'R': e.preventDefault(); regress(); break;   // replay sentence
       case 'Escape':     closeReader(); break;
     }
   });
