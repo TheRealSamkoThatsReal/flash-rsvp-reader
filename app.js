@@ -105,6 +105,7 @@
     renderWord(tok.word);
     updateProgress();
     updateContext();
+    saveProgress(false);          // throttled autosave while reading
   }
 
   // state.index always points at the word currently on screen.
@@ -134,6 +135,7 @@
     clearTimeout(state.timer);
     playBtn.textContent = '▶︎';
     playBtn.classList.remove('playing');
+    saveProgress(false);
   }
 
   function togglePlay() { state.playing ? pause() : play(); }
@@ -142,6 +144,7 @@
     pause();
     state.index = state.tokens.length;
     updateProgress();
+    saveProgress(true);
     // In a book with more chapters, roll on to the next one automatically.
     if (state.book && state.book.index < state.book.chapters.length - 1) {
       wPre.textContent = ''; wOrp.textContent = '›'; wPost.textContent = '';
@@ -221,7 +224,7 @@
     // Prefix character offset of each token, for the ebook location readout.
     let acc = 0;
     state.charStarts = state.tokens.map((t) => { const s = acc; acc += t.word.length + 1; return s; });
-    state.index = 0;
+    state.index = Math.max(0, Math.min(opts.startIndex || 0, state.tokens.length - 1));
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
     readerView.classList.remove('hidden');
@@ -234,6 +237,7 @@
 
   function closeReader() {
     pause();
+    saveProgress(true);
     readerView.classList.add('hidden');
     if (state.book) bookView.classList.remove('hidden');   // back to chapter list
     else inputView.classList.remove('hidden');
@@ -424,18 +428,23 @@
     }
   }
 
-  function openBook(book) {
-    // Book-wide character offsets for the location readout.
+  function computeOffsets(book) {
     let acc = 0;
     book.charOffsets = book.chapters.map((ch) => { const s = acc; acc += ch.text.length + 1; return s; });
     book.totalChars = acc;
+  }
+
+  function populateBook(book) {
+    computeOffsets(book);
+    book.id = book.id || bookId(book);
+    saveContent(book);          // persist text once for cross-session resume
     state.book = book;
     bookTitle.textContent = book.title;
     chapterList.innerHTML = '';
     book.chapters.forEach((ch, i) => {
       const words = ch.text.split(/\s+/).filter(Boolean).length;
       const btn = document.createElement('button');
-      btn.className = 'chapter-item';
+      btn.className = 'chapter-item' + (i === book.index ? ' current' : '');
       btn.innerHTML = '<span class="cnum"></span><span class="ctitle"></span><span class="cwords"></span>';
       btn.querySelector('.cnum').textContent = i + 1;
       btn.querySelector('.ctitle').textContent = ch.title;
@@ -443,16 +452,161 @@
       btn.addEventListener('click', () => openChapter(i));
       chapterList.appendChild(btn);
     });
+  }
+
+  function openBook(book) {
+    populateBook(book);
     inputView.classList.add('hidden');
     readerView.classList.add('hidden');
     bookView.classList.remove('hidden');
   }
 
-  function openChapter(i, autostart) {
+  function openChapter(i, autostart, startWord) {
     const b = state.book;
     if (!b || !b.chapters[i]) return;
     b.index = i;
-    openReader(b.chapters[i].text, { fromBook: true, autostart });
+    openReader(b.chapters[i].text, { fromBook: true, autostart, startIndex: startWord || 0 });
+    saveProgress(true);
+  }
+
+  // ---------- reading progress + library (IndexedDB) ----------
+  // Two stores: 'content' (book text, written once) and 'progress' (tiny
+  // position record, written often) — so autosave never rewrites a whole book.
+  const DB_NAME = 'flash', C_STORE = 'content', P_STORE = 'progress';
+  let dbPromise = null, lastSave = 0;
+
+  function idb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) { reject(new Error('no IndexedDB')); return; }
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(C_STORE)) db.createObjectStore(C_STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(P_STORE)) db.createObjectStore(P_STORE, { keyPath: 'id' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+  async function idbPut(store, rec) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).put(rec);
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+    });
+  }
+  async function idbGet(store, id) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const r = db.transaction(store, 'readonly').objectStore(store).get(id);
+      r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error);
+    });
+  }
+  async function idbGetAll(store) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const r = db.transaction(store, 'readonly').objectStore(store).getAll();
+      r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error);
+    });
+  }
+  async function idbDelete(store, id) {
+    const db = await idb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).delete(id);
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+    });
+  }
+
+  function bookId(book) {
+    const key = (book.title || '') + '|' + book.chapters.length + '|' + (book.totalChars || 0);
+    let h = 0;
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+    return 'b' + (h >>> 0).toString(36);
+  }
+
+  // Store the book text once (idempotent) so resume works across sessions.
+  function saveContent(book) {
+    idbPut(C_STORE, { id: book.id, title: book.title, chapters: book.chapters, totalChars: book.totalChars })
+      .catch(() => {});
+  }
+
+  async function saveProgress(force) {
+    const b = state.book;
+    if (!b || !b.id || !b.charOffsets) return;
+    const now = Date.now();
+    if (!force && now - lastSave < 3000) return;   // throttle autosaves
+    lastSave = now;
+    const inChapter = state.charStarts ? (state.charStarts[Math.min(state.index, state.charStarts.length - 1)] || 0) : 0;
+    const offset = (b.charOffsets[b.index] || 0) + inChapter;
+    try {
+      await idbPut(P_STORE, {
+        id: b.id, title: b.title, chapterIndex: b.index, wordIndex: state.index,
+        offset, totalChars: b.totalChars, updatedAt: now,
+      });
+      await pruneLibrary();
+    } catch (_) {}
+  }
+
+  async function pruneLibrary() {
+    try {
+      const all = await idbGetAll(P_STORE);
+      if (all.length <= 20) return;
+      all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      for (const rec of all.slice(20)) { await idbDelete(P_STORE, rec.id); await idbDelete(C_STORE, rec.id); }
+    } catch (_) {}
+  }
+
+  async function renderLibrary() {
+    const wrap = $('library');
+    let all;
+    try { all = await idbGetAll(P_STORE); } catch (_) { wrap.classList.add('hidden'); return; }
+    all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    wrap.innerHTML = '';
+    if (!all.length) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    const head = document.createElement('div');
+    head.className = 'lib-head'; head.textContent = 'Continue reading';
+    wrap.appendChild(head);
+    for (const rec of all) {
+      const loc = Math.floor((rec.offset || 0) / 128) + 1;
+      const totalLoc = Math.max(loc, Math.floor((rec.totalChars || 0) / 128));
+      const pct = rec.totalChars ? Math.min(100, Math.round((rec.offset || 0) / rec.totalChars * 100)) : 0;
+      const item = document.createElement('div');
+      item.className = 'lib-item';
+      const info = document.createElement('div');
+      info.className = 'lib-info';
+      const t = document.createElement('span');
+      t.className = 'lib-title'; t.textContent = rec.title || 'Untitled';
+      const m = document.createElement('span');
+      m.className = 'lib-meta';
+      m.textContent = 'loc ' + loc.toLocaleString() + ' / ' + totalLoc.toLocaleString() + ' · ' + pct + '%';
+      info.appendChild(t); info.appendChild(m);
+      info.addEventListener('click', () => resumeBook(rec));
+      const rm = document.createElement('button');
+      rm.className = 'lib-remove'; rm.textContent = '✕'; rm.title = 'Remove from library';
+      rm.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await idbDelete(P_STORE, rec.id); await idbDelete(C_STORE, rec.id);
+        renderLibrary();
+      });
+      item.appendChild(info); item.appendChild(rm);
+      wrap.appendChild(item);
+    }
+  }
+
+  async function resumeBook(rec) {
+    const content = await idbGet(C_STORE, rec.id);
+    if (!content) {   // text was pruned away — drop the stale entry
+      await idbDelete(P_STORE, rec.id); renderLibrary();
+      return;
+    }
+    const book = { title: content.title, chapters: content.chapters, index: rec.chapterIndex || 0, id: rec.id };
+    populateBook(book);
+    openChapter(rec.chapterIndex || 0, undefined, rec.wordIndex || 0);
   }
 
   // ---------- article browser (Hacker News / Algolia, CORS-enabled) ----------
@@ -531,8 +685,15 @@
       // Ebook and Browse tabs act on their own controls, so hide the Start button.
       startBtn.classList.toggle('hidden', state.activeTab === 'file' || state.activeTab === 'browse');
       if (state.activeTab === 'browse' && !browseLoaded) fetchFeed();
+      if (state.activeTab === 'file') renderLibrary();
     });
   });
+
+  // Persist reading position when the app is hidden or closed.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveProgress(true);
+  });
+  window.addEventListener('pagehide', () => saveProgress(true));
 
   // Article browser controls
   document.querySelectorAll('.browse-chips .chip').forEach((chip) => {
@@ -565,6 +726,7 @@
   $('book-back').addEventListener('click', () => {
     bookView.classList.add('hidden');
     inputView.classList.remove('hidden');
+    renderLibrary();
   });
 
   startBtn.addEventListener('click', async () => {
@@ -711,4 +873,7 @@
     document.querySelector('.tab[data-tab="link"]').click();
     linkInput.value = params.get('url');
   }
+
+  // Warm the continue-reading library so it's ready when the Ebook tab opens.
+  renderLibrary();
 })();

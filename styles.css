@@ -78,6 +78,18 @@ textarea:focus,#link-input:focus{outline:0;border-color:var(--focus)}
   color:var(--text);font-size:15px;padding:14px 6px;cursor:pointer;display:flex;gap:12px;align-items:baseline;
 }
 .chapter-item:hover{color:var(--focus)}
+.chapter-item.current,.chapter-item.current .cnum{color:var(--focus)}
+
+/* Continue-reading library */
+.library{display:flex;flex-direction:column;gap:2px;max-height:38vh;overflow-y:auto;flex:0 0 auto}
+.lib-head{color:var(--muted);font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:2px 2px 6px}
+.lib-item{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+.lib-info{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;padding:11px 4px;cursor:pointer}
+.lib-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px}
+.lib-item:hover .lib-title{color:var(--focus)}
+.lib-meta{color:var(--muted);font-family:var(--mono);font-size:11px}
+.lib-remove{color:var(--muted);background:transparent;border:0;font-size:15px;padding:6px 8px;cursor:pointer;flex:0 0 auto}
+.lib-remove:hover{color:#ff6b6b}
 .chapter-item .cnum{color:var(--muted);font-family:var(--mono);font-size:12px;min-width:30px}
 .chapter-item .cwords{color:var(--muted);font-family:var(--mono);font-size:11px;margin-left:auto;white-space:nowrap}
 
