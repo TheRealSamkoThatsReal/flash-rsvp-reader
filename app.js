@@ -44,6 +44,8 @@
     autoSlow: true,    // ease off for a few words after a long/complex word
     peek: true,        // expand to the full sentence when paused
     slow: 1,           // live auto-slow multiplier (decays back to 1)
+    scrollMode: false, // horizontal scrolling text vs single-word flash
+    fullText: '',      // joined text, for the scrolling window
   };
 
   // Persisted preferences
@@ -54,6 +56,7 @@
     if (typeof saved.pauseStrength === 'number') state.pauseStrength = saved.pauseStrength;
     if (typeof saved.autoSlow === 'boolean') state.autoSlow = saved.autoSlow;
     if (typeof saved.peek === 'boolean') state.peek = saved.peek;
+    if (typeof saved.scrollMode === 'boolean') state.scrollMode = saved.scrollMode;
   } catch (_) {}
   wpmRange.value = state.wpm;
   wpmOut.textContent = state.wpm + ' wpm';
@@ -64,6 +67,7 @@
       localStorage.setItem('flash-prefs', JSON.stringify({
         wpm: state.wpm, text: textInput.value.slice(0, 200000),
         pauseStrength: state.pauseStrength, autoSlow: state.autoSlow, peek: state.peek,
+        scrollMode: state.scrollMode,
       }));
     } catch (_) {}
   };
@@ -116,13 +120,25 @@
     wPost.textContent = word.slice(i + 1);
   }
 
+  // Scrolling mode: show a sliding window of the running text with the current
+  // word's pivot letter pinned to the centre (same flex trick as the word view).
+  const SCROLL_WIN = 70;
+  function renderScroll() {
+    const i = Math.min(state.index, state.tokens.length - 1);
+    const orpAbs = state.charStarts[i] + orpIndex(state.tokens[i].word);
+    const ft = state.fullText;
+    wPre.textContent  = ft.slice(Math.max(0, orpAbs - SCROLL_WIN), orpAbs);
+    wOrp.textContent  = ft[orpAbs] || '';
+    wPost.textContent = ft.slice(orpAbs + 1, orpAbs + 1 + SCROLL_WIN);
+  }
+
   // ---------- reader loop ----------
   function baseDelayMs() { return 60000 / state.wpm; }
 
   function showCurrent() {
     const tok = state.tokens[state.index];
     if (!tok) return;
-    renderWord(tok.word);
+    if (state.scrollMode) renderScroll(); else renderWord(tok.word);
     updateProgress();
     updateContext();
     saveProgress(false);          // throttled autosave while reading
@@ -299,9 +315,11 @@
     // Prefix character offset of each token, for the ebook location readout.
     let acc = 0;
     state.charStarts = state.tokens.map((t) => { const s = acc; acc += t.word.length + 1; return s; });
+    state.fullText = state.tokens.map((t) => t.word).join(' ');
     state.replayUntil = null;
     state.slow = 1;
     state.index = Math.max(0, Math.min(opts.startIndex || 0, state.tokens.length - 1));
+    wordDisplay.classList.toggle('scroll', !!state.scrollMode);
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
     readerView.classList.remove('hidden');
@@ -814,6 +832,8 @@
   $('settings-back').addEventListener('click', () => {
     settingsView.classList.add('hidden'); inputView.classList.remove('hidden');
   });
+  $('scroll-mode').checked = state.scrollMode;
+  $('scroll-mode').addEventListener('change', (e) => { state.scrollMode = e.target.checked; savePrefs(); });
   $('pause-strength').value = Math.round(state.pauseStrength * 100);
   $('pause-out').textContent = Math.round(state.pauseStrength * 100) + '%';
   $('auto-slow').checked = state.autoSlow;
