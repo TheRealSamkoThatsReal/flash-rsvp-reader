@@ -158,6 +158,7 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
   will-change:transform;color:var(--text);letter-spacing:0;
 }
 .scroll-line .s-orp{color:var(--focus)}
+.scroll-line .s-dim{color:var(--muted)}
 .scroll-display::before,.scroll-display::after{
   content:"";position:absolute;left:50%;width:2px;height:7px;margin-left:-1px;background:var(--focus);opacity:.85;
 }

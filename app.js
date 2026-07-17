@@ -132,14 +132,21 @@
   }
   function renderScroll() {
     const i = Math.min(state.index, state.tokens.length - 1);
-    const orpAbs = state.charStarts[i] + orpIndex(state.tokens[i].word);
+    const word = state.tokens[i].word;
     const ft = state.fullText;
+    const wordStart = state.charStarts[i];
+    const orpAbs = wordStart + orpIndex(word);
+    const wordEnd = wordStart + word.length;
     const winStart = Math.max(0, orpAbs - SCROLL_WIN);
-    const before = ft.slice(winStart, orpAbs);
-    const ch = ft[orpAbs] || '';
-    const after = ft.slice(orpAbs + 1, orpAbs + 1 + SCROLL_WIN);
+    const winEnd = orpAbs + 1 + SCROLL_WIN;
     const pivotLocal = orpAbs - winStart;
-    scrollLine.innerHTML = escapeHtml(before) + '<span class="s-orp">' + escapeHtml(ch) + '</span>' + escapeHtml(after);
+    // Current word bright (pivot blue); surrounding context dimmed grey.
+    scrollLine.innerHTML =
+      '<span class="s-dim">' + escapeHtml(ft.slice(winStart, wordStart)) + '</span>' +
+      escapeHtml(ft.slice(wordStart, orpAbs)) +
+      '<span class="s-orp">' + escapeHtml(ft[orpAbs] || '') + '</span>' +
+      escapeHtml(ft.slice(orpAbs + 1, wordEnd)) +
+      '<span class="s-dim">' + escapeHtml(ft.slice(wordEnd, winEnd)) + '</span>';
     scrollLine.style.transform = 'translate(' + (-(pivotLocal + 0.5)) + 'ch, -50%)';
   }
 
