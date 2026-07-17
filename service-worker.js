@@ -1,6 +1,6 @@
 /* Flash service worker — network-first for the app shell so updates show up
  * as soon as you're online, with a cached copy as an offline fallback. */
-const CACHE = 'flash-v3';
+const CACHE = 'flash-v4';
 const SHELL = [
   '.',
   'index.html',
