@@ -145,19 +145,24 @@ kbd{font-family:var(--mono);border:1px solid var(--line);border-radius:3px;paddi
 .word-display .word-orp{color:var(--focus);flex:0 0 auto}
 .word-display .word-post{text-align:left;flex:1 1 0;white-space:pre;color:var(--text)}
 
-/* Scrolling mode: running text through a fixed centre pivot, edges faded. */
-.word-display.scroll{
-  font-size:clamp(17px,5.2vw,26px);overflow:hidden;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);
-  mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);
+/* Scrolling mode: one steady monospace line slid so the pivot stays centred,
+   with a fixed crosshair at the focal point and faded edges. */
+.scroll-display{
+  position:relative;height:64px;overflow:hidden;
+  font-family:var(--mono);font-size:clamp(18px,5.4vw,27px);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);
 }
-.word-display.scroll .word-pre,.word-display.scroll .word-post{min-width:0;overflow:hidden}
-.word-display.scroll .word-orp{position:relative}
-.word-display.scroll .word-orp::before,.word-display.scroll .word-orp::after{
-  content:"";position:absolute;left:50%;transform:translateX(-50%);width:2px;height:7px;background:var(--focus);
+.scroll-line{
+  position:absolute;left:50%;top:50%;white-space:pre;width:max-content;max-width:none;
+  will-change:transform;color:var(--text);letter-spacing:0;
 }
-.word-display.scroll .word-orp::before{top:-12px}
-.word-display.scroll .word-orp::after{bottom:-12px}
+.scroll-line .s-orp{color:var(--focus)}
+.scroll-display::before,.scroll-display::after{
+  content:"";position:absolute;left:50%;width:2px;height:7px;margin-left:-1px;background:var(--focus);opacity:.85;
+}
+.scroll-display::before{top:8px}
+.scroll-display::after{bottom:8px}
 
 .context-strip{
   min-height:40px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;

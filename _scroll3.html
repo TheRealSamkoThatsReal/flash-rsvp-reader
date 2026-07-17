@@ -1,0 +1,18 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head>
+<body><main id="app"><section class="view" id="reader-view">
+<button class="icon-btn back">✕</button><div id="gesture-layer" class="gesture-layer"></div>
+<div class="reader-stage">
+<div id="word-display" class="word-display hidden"><span class="word-pre"></span><span class="word-orp"></span><span class="word-post"></span></div>
+<div id="scroll-display" class="scroll-display"><div id="scroll-line"></div></div>
+</div>
+<div class="context-strip"></div>
+<div class="progress-wrap"><input type="range" value="42"><div class="progress-meta"><span>612 / 1,980</span><span>2:41 left</span></div></div>
+<div id="wpm-badge" class="wpm-badge"><span id="wpm-val">750 wpm</span><span id="loc-val" class="loc-val">loc 1,284 / 5,677</span></div>
+</section></main>
+<script>
+const before = "softened everything it touched and set the m";
+const orp = "o"; const after = "od to evoke a quiet nostalgia in everyone.";
+const line = document.getElementById('scroll-line');
+line.innerHTML = before + '<span class="s-orp">'+orp+'</span>' + after;
+line.style.transform = 'translate(' + (-(before.length + 0.5)) + 'ch, -50%)';
+</script></body></html>

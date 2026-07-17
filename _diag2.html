@@ -1,0 +1,13 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head>
+<body><main id="app"><section class="view" id="reader-view" style="justify-content:flex-start;padding-top:60px">
+<div class="reader-stage">
+<div id="scroll-display" class="scroll-display"><div id="scroll-line"></div></div>
+</div></section></main>
+<script>
+const before="softened everything it touched and set the m",orp="o",after="od to evoke a quiet nostalgia in everyone.";
+const line=document.getElementById('scroll-line'),disp=document.getElementById('scroll-display');
+line.innerHTML=before+'<span class="s-orp">'+orp+'</span>'+after;
+line.style.transform='translate('+(-(before.length+0.5))+'ch, -50%)';
+const lr=line.getBoundingClientRect(),dr=disp.getBoundingClientRect();
+document.body.insertAdjacentHTML('beforeend','<pre style="color:#0f0;position:fixed;bottom:0;left:0;font-size:11px">disp x='+Math.round(dr.left)+'..'+Math.round(dr.right)+' y='+Math.round(dr.top)+'..'+Math.round(dr.bottom)+'\nline x='+Math.round(lr.left)+'..'+Math.round(lr.right)+' y='+Math.round(lr.top)+'..'+Math.round(lr.bottom)+' w='+Math.round(lr.width)+'\nmask='+getComputedStyle(disp).maskImage.slice(0,30)+'</pre>');
+</script></body></html>

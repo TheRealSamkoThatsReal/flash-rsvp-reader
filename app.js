@@ -22,6 +22,8 @@
   const wPre  = wordDisplay.querySelector('.word-pre');
   const wOrp  = wordDisplay.querySelector('.word-orp');
   const wPost = wordDisplay.querySelector('.word-post');
+  const scrollDisplay = $('scroll-display');
+  const scrollLine = $('scroll-line');
   const contextStrip = $('context-strip');
   const seek     = $('seek');
   const posLabel = $('pos-label');
@@ -120,16 +122,25 @@
     wPost.textContent = word.slice(i + 1);
   }
 
-  // Scrolling mode: show a sliding window of the running text with the current
-  // word's pivot letter pinned to the centre (same flex trick as the word view).
-  const SCROLL_WIN = 70;
+  // Scrolling mode: render a window of the running text as one steady monospace
+  // line and slide it (in exact character units) so the pivot letter stays at
+  // the centre. Uniform motion, no per-word jitter.
+  const SCROLL_WIN = 120;
+  function applyMode() {
+    scrollDisplay.classList.toggle('hidden', !state.scrollMode);
+    wordDisplay.classList.toggle('hidden', !!state.scrollMode);
+  }
   function renderScroll() {
     const i = Math.min(state.index, state.tokens.length - 1);
     const orpAbs = state.charStarts[i] + orpIndex(state.tokens[i].word);
     const ft = state.fullText;
-    wPre.textContent  = ft.slice(Math.max(0, orpAbs - SCROLL_WIN), orpAbs);
-    wOrp.textContent  = ft[orpAbs] || '';
-    wPost.textContent = ft.slice(orpAbs + 1, orpAbs + 1 + SCROLL_WIN);
+    const winStart = Math.max(0, orpAbs - SCROLL_WIN);
+    const before = ft.slice(winStart, orpAbs);
+    const ch = ft[orpAbs] || '';
+    const after = ft.slice(orpAbs + 1, orpAbs + 1 + SCROLL_WIN);
+    const pivotLocal = orpAbs - winStart;
+    scrollLine.innerHTML = escapeHtml(before) + '<span class="s-orp">' + escapeHtml(ch) + '</span>' + escapeHtml(after);
+    scrollLine.style.transform = 'translate(' + (-(pivotLocal + 0.5)) + 'ch, -50%)';
   }
 
   // ---------- reader loop ----------
@@ -138,6 +149,7 @@
   function showCurrent() {
     const tok = state.tokens[state.index];
     if (!tok) return;
+    applyMode();
     if (state.scrollMode) renderScroll(); else renderWord(tok.word);
     updateProgress();
     updateContext();
@@ -193,14 +205,18 @@
     updateProgress();
     saveProgress(true);
     contextStrip.classList.remove('peek');
+    const endGlyph = (g) => {
+      if (state.scrollMode) { scrollLine.innerHTML = '<span class="s-orp">' + g + '</span>'; scrollLine.style.transform = 'translate(-0.5ch, -50%)'; }
+      else { wPre.textContent = ''; wOrp.textContent = g; wPost.textContent = ''; }
+    };
     // In a book with more chapters, roll on to the next one automatically.
     if (state.book && state.book.index < state.book.chapters.length - 1) {
-      wPre.textContent = ''; wOrp.textContent = '›'; wPost.textContent = '';
+      endGlyph('›');
       contextStrip.innerHTML = '<span class="cur">Next chapter…</span>';
       setTimeout(() => { if (state.book) openChapter(state.book.index + 1, true); }, 900);
       return;
     }
-    wPre.textContent = ''; wOrp.textContent = '✓'; wPost.textContent = '';
+    endGlyph('✓');
     contextStrip.innerHTML = '<span class="cur">Done.</span>';
   }
 
@@ -319,7 +335,7 @@
     state.replayUntil = null;
     state.slow = 1;
     state.index = Math.max(0, Math.min(opts.startIndex || 0, state.tokens.length - 1));
-    wordDisplay.classList.toggle('scroll', !!state.scrollMode);
+    applyMode();
     inputView.classList.add('hidden');
     bookView.classList.add('hidden');
     readerView.classList.remove('hidden');
