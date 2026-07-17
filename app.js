@@ -900,6 +900,7 @@
   // Handled on a full-screen layer so gestures work anywhere on the screen.
   const stage = document.getElementById('gesture-layer');
   const THRESH = 14;            // px of movement before a hold becomes a swipe
+  const HOLD_LOCK = 350;        // after this long holding, movement won't hijack into a swipe
   const PX_PER_WORD = 10;       // horizontal seek sensitivity
   const PX_PER_WPM = 1.6;       // vertical speed sensitivity
   let g = null;
@@ -924,8 +925,10 @@
     const dx = e.touches[0].clientX - g.x0;
     const dy = e.touches[0].clientY - g.y0;
 
-    if (g.mode === 'hold' && (Math.abs(dx) > THRESH || Math.abs(dy) > THRESH)) {
-      // A swipe: stop the hold-play blip and reset to where the finger landed.
+    // Only let a hold turn into a swipe if the movement happens right away;
+    // once you've settled into holding to read, drifting won't hijack it.
+    if (g.mode === 'hold' && !g.locked && (Math.abs(dx) > THRESH || Math.abs(dy) > THRESH)) {
+      if (Date.now() - g.t0 > HOLD_LOCK) { g.locked = true; return; }
       pause();
       seekTo(g.startIndex);
       g.mode = Math.abs(dx) > Math.abs(dy) ? 'seek' : 'speed';
