@@ -523,10 +523,108 @@
     }));
   }
 
+  // ---------- PDF (pdf.js, lazily loaded from the bundled vendor copy) ----------
+  let pdfjsReady = null;
+  function loadPdfJs() {
+    if (pdfjsReady) return pdfjsReady;
+    pdfjsReady = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/pdf.min.js';
+      s.onload = () => {
+        if (!window.pdfjsLib) { reject(new Error('PDF engine unavailable')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => reject(new Error('could not load PDF engine'));
+      document.head.appendChild(s);
+    });
+    return pdfjsReady;
+  }
+
+  function cleanupPdf(raw) {
+    return raw
+      .replace(/([A-Za-z])-\s+([a-z])/g, '$1$2')   // join hyphenated line breaks
+      .replace(/\n{2,}/g, '\u0001')                  // mark paragraph breaks
+      .replace(/\n/g, ' ')                           // line breaks -> spaces
+      .replace(/\u0001/g, '. ')                      // paragraphs -> sentence stop
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  async function extractPageText(page) {
+    const tc = await page.getTextContent();
+    let out = '', lastY = null;
+    for (const it of tc.items) {
+      const y = it.transform ? it.transform[5] : null;
+      if (lastY !== null && y !== null && Math.abs(y - lastY) > 3 && out && !out.endsWith(' ')) out += '\n';
+      out += it.str;
+      if (it.hasEOL) out += '\n';
+      lastY = y;
+    }
+    // Drop lines that are just a page number.
+    return out.split('\n').filter((l) => !/^\s*\d{1,4}\s*$/.test(l)).join('\n');
+  }
+
+  async function pageOfDest(doc, dest) {
+    if (!dest) return null;
+    let explicit = dest;
+    if (typeof dest === 'string') { try { explicit = await doc.getDestination(dest); } catch (_) { return null; } }
+    if (!Array.isArray(explicit) || !explicit[0]) return null;
+    try { return await doc.getPageIndex(explicit[0]); } catch (_) { return null; }
+  }
+
+  async function chaptersFromOutline(doc, pageTexts, numPages) {
+    let outline;
+    try { outline = await doc.getOutline(); } catch (_) { return null; }
+    if (!outline || outline.length < 2) return null;
+    const marks = [];
+    for (const item of outline) {
+      const pg = await pageOfDest(doc, item.dest);
+      if (pg != null) marks.push({ title: (item.title || 'Section').trim(), page: pg });
+    }
+    if (marks.length < 2) return null;
+    marks.sort((a, b) => a.page - b.page);
+    const chapters = [];
+    for (let k = 0; k < marks.length; k++) {
+      const start = marks[k].page;
+      const end = k + 1 < marks.length ? marks[k + 1].page : numPages;
+      const text = cleanupPdf(pageTexts.slice(start, end).join('\n\n'));
+      if (text) chapters.push({ title: marks[k].title, text });
+    }
+    return chapters;
+  }
+
+  async function parsePdf(file) {
+    flashFileStatus('Loading PDF engine…', 'busy');
+    const pdfjs = await loadPdfJs();
+    const buf = await file.arrayBuffer();
+    const doc = await pdfjs.getDocument({ data: buf }).promise;
+    const numPages = doc.numPages;
+    const pageTexts = [];
+    for (let p = 1; p <= numPages; p++) {
+      flashFileStatus('Reading PDF — page ' + p + ' / ' + numPages + '…', 'busy');
+      pageTexts.push(await extractPageText(await doc.getPage(p)));
+    }
+    const title = (file.name || 'PDF').replace(/\.pdf$/i, '');
+    let chapters = await chaptersFromOutline(doc, pageTexts, numPages);
+    if (!chapters || !chapters.length) {
+      chapters = [{ title: 'Document', text: cleanupPdf(pageTexts.join('\n\n')) }];
+    }
+    chapters = chapters.filter((c) => c.text && c.text.length);
+    if (!chapters.length) throw new Error('no readable text — is it a scanned PDF?');
+    return { title, chapters, index: 0 };
+  }
+
   async function handleFile(file) {
     if (!file) return;
     const name = (file.name || '').toLowerCase();
     try {
+      if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+        const book = await parsePdf(file);
+        $('file-status').classList.add('hidden');
+        openBook(book);
+        return;
+      }
       if (name.endsWith('.txt') || file.type === 'text/plain') {
         const text = await file.text();
         if (!text.trim()) throw new Error('file is empty');
